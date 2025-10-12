@@ -25,7 +25,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+#as user can chnage the interface on that project
 st.markdown("""
 <style>
     .main-header {
