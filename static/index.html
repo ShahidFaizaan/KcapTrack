@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="KCapTrack is a computer vision-powered calorie and macro tracker. Scan meals with YOLOv8 and track daily nutrition against Mifflin-St Jeor targets.">
+  <title>KCapTrack — Vision-Powered Calorie & Macro Tracker</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥗</text></svg>">
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- ── Navbar ──────────────────────────────────────────────────────────── -->
+    <header class="navbar">
+      <div class="brand">
+        <div class="brand-icon">🥗</div>
+        <div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="brand-title">KCapTrack</span>
+            <span class="brand-badge">AI Vision</span>
+          </div>
+          <div style="font-size:11px; color:var(--text-dim); margin-top:-2px;">Capture • Track • Transform</div>
+        </div>
+      </div>
+
+      <nav class="nav-links" id="mainNav">
+        <button class="nav-tab active" data-tab="scanner" id="navTabScanner">
+          <span>📷</span> Scan Meal
+        </button>
+        <button class="nav-tab" data-tab="dashboard" id="navTabDashboard">
+          <span>📊</span> Dashboard
+        </button>
+        <button class="nav-tab" data-tab="biometrics" id="navTabBiometrics">
+          <span>🧬</span> Biometrics & Goals
+        </button>
+        <button class="nav-tab" data-tab="history" id="navTabHistory">
+          <span>🕒</span> Logs
+        </button>
+      </nav>
+
+      <div class="nav-actions">
+        <button type="button" class="btn btn-secondary" id="apiKeyModalBtn" style="padding:6px 14px; font-size:12px; display:inline-flex; align-items:center; gap:6px;">
+          <span id="geminiKeyStatusDot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
+          <span id="geminiKeyBtnText">AI Vision Key</span>
+        </button>
+        <div class="status-indicator" id="serverStatusPill">
+          <span class="status-dot online" id="statusDot"></span>
+          <span id="statusText">Connected</span>
+        </div>
+        <div class="user-badge" id="userBadgeBtn" title="Click to manage account">
+          <div class="user-avatar" id="userAvatar">A</div>
+          <span id="navUsername">Demo Athlete</span>
+        </div>
+        <a href="/docs" target="_blank" class="btn btn-secondary" style="padding:6px 14px; font-size:12px; text-decoration:none;">
+          Swagger /docs ↗
+        </a>
+      </div>
+    </header>
+
+    <!-- ── Hero Banner ─────────────────────────────────────────────────────── -->
+    <section class="hero-banner">
+      <div class="hero-text">
+        <h1>Computer Vision Nutrition Intelligence</h1>
+        <p>
+          Drop a meal photo below. Our integrated YOLOv8 vision pipeline detects food items, calculates portion mass heuristics, and logs nutrition against your Mifflin-St Jeor targets.
+        </p>
+      </div>
+      <div class="hero-stats">
+        <div class="hero-stat-card">
+          <div class="hero-stat-value" id="heroCalTarget">2,000</div>
+          <div class="hero-stat-label">Target kcal</div>
+        </div>
+        <div class="hero-stat-card">
+          <div class="hero-stat-value" id="heroCalRemaining">2,000</div>
+          <div class="hero-stat-label">Remaining kcal</div>
+        </div>
+        <div class="hero-stat-card">
+          <div class="hero-stat-value" id="heroGoalBadge" style="color:var(--accent-cyan); text-transform:uppercase;">CUT</div>
+          <div class="hero-stat-label">Active Goal</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── VIEW 1: YOLO Meal Scanner ──────────────────────────────────────── -->
+    <main>
+      <section class="view-section active" id="viewScanner">
+        <div class="grid-dashboard">
+          
+          <!-- Left: Scanner Studio -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span>📷</span> Meal Scanner Studio</h2>
+                <div class="card-subtitle">Upload photo, scan from camera, or add food manually</div>
+              </div>
+              <select class="meal-type-select" id="scanMealType">
+                <option value="lunch">Lunch</option>
+                <option value="breakfast">Breakfast</option>
+                <option value="dinner">Dinner</option>
+                <option value="snack">Snack</option>
+              </select>
+            </div>
+
+            <!-- Input Mode Tabs -->
+            <div id="inputModeTabs" style="display:flex; gap:8px; margin-bottom:16px;">
+              <button type="button" class="mode-tab active" id="modeTabUpload" data-mode="upload">
+                📂 Upload Photo
+              </button>
+              <button type="button" class="mode-tab" id="modeTabCamera" data-mode="camera">
+                📸 Camera
+              </button>
+              <button type="button" class="mode-tab" id="modeTabManual" data-mode="manual">
+                ✏️ Add Manually
+              </button>
+            </div>
+
+            <!-- Upload Mode -->
+            <div id="uploadMode" class="input-mode-panel">
+              <!-- Drag & Drop Zone -->
+              <div class="scanner-dropzone" id="dropzone">
+                <input type="file" id="mealFileInput" accept="image/*" style="display:none;">
+                <div class="dropzone-icon">📥</div>
+                <div class="dropzone-title">Drag & drop your meal photo here</div>
+                <div class="dropzone-desc">Supports JPEG, PNG, WEBP (under 15 MB) or click to browse</div>
+                <button type="button" class="btn btn-primary" id="browseBtn">
+                  Select Photo
+                </button>
+
+                <div class="sample-pills">
+                  <span style="font-size:11px; color:var(--text-dim); width:100%; margin-bottom:4px;">Or test with a demo image:</span>
+                  <button type="button" class="sample-pill" data-sample="apple">🍎 Apple</button>
+                  <button type="button" class="sample-pill" data-sample="banana">🍌 Banana</button>
+                  <button type="button" class="sample-pill" data-sample="pizza">🍕 Pizza</button>
+                  <button type="button" class="sample-pill" data-sample="broccoli">🥦 Broccoli</button>
+                  <button type="button" class="sample-pill" data-sample="sandwich">🥪 Sandwich</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Camera Mode -->
+            <div id="cameraMode" class="input-mode-panel" style="display:none;">
+              <div style="position:relative; background:#0a0a0f; border-radius:12px; overflow:hidden; min-height:280px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                <video id="cameraFeed" autoplay playsinline muted style="width:100%; max-height:320px; object-fit:cover; display:none; border-radius:12px;"></video>
+                <canvas id="cameraCanvas" style="display:none;"></canvas>
+                <div id="cameraPlaceholder" style="text-align:center; padding:40px; color:var(--text-dim);">
+                  <div style="font-size:48px; margin-bottom:12px;">📷</div>
+                  <div style="font-size:14px; margin-bottom:16px;">Point your camera at your meal</div>
+                  <button type="button" class="btn btn-primary" id="startCameraBtn">
+                    📸 Start Camera
+                  </button>
+                </div>
+                <img id="cameraSnapshot" style="display:none; width:100%; max-height:320px; object-fit:cover; border-radius:12px;" alt="Captured meal">
+              </div>
+              <div style="display:flex; gap:10px; margin-top:12px; justify-content:center;" id="cameraControls" style="display:none;">
+                <button type="button" class="btn btn-secondary" id="snapPhotoBtn" style="display:none;">
+                  📸 Snap Photo
+                </button>
+                <button type="button" class="btn btn-secondary" id="retakePhotoBtn" style="display:none;">
+                  🔄 Retake
+                </button>
+                <button type="button" class="btn btn-secondary" id="stopCameraBtn" style="display:none;">
+                  ✕ Stop Camera
+                </button>
+              </div>
+            </div>
+
+            <!-- Manual Entry Mode -->
+            <div id="manualMode" class="input-mode-panel" style="display:none;">
+              <div style="padding:20px; background:rgba(255,255,255,0.03); border-radius:12px; border:1px solid rgba(255,255,255,0.07);">
+                <div style="margin-bottom:16px;">
+                  <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Food Name</label>
+                  <input type="text" id="manualFoodName" placeholder="e.g. Dosa, Chicken Rice, Salad..." list="foodSuggestions"
+                    style="width:100%; padding:10px 14px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:14px; outline:none;">
+                  <datalist id="foodSuggestions"></datalist>
+                </div>
+                <div style="margin-bottom:16px;">
+                  <label style="display:block; font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Portion Size (grams)</label>
+                  <input type="number" id="manualPortion" value="150" min="1" max="5000"
+                    style="width:100%; padding:10px 14px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:8px; color:var(--text-primary); font-size:14px; outline:none;">
+                </div>
+                <div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:14px; margin-bottom:16px; border:1px solid rgba(255,255,255,0.06);" id="manualNutritionPreview">
+                  <div style="font-size:11px; color:var(--text-dim); text-transform:uppercase; margin-bottom:8px;">Estimated Nutrition</div>
+                  <div style="display:grid; grid-template-columns:repeat(4,1fr); text-align:center;">
+                    <div><div style="font-size:16px; font-weight:700; color:var(--color-calories);" id="previewCal">—</div><div style="font-size:10px; color:var(--text-dim);">kcal</div></div>
+                    <div><div style="font-size:16px; font-weight:700; color:var(--color-protein);" id="previewPro">—</div><div style="font-size:10px; color:var(--text-dim);">protein</div></div>
+                    <div><div style="font-size:16px; font-weight:700; color:var(--color-fat);" id="previewFat">—</div><div style="font-size:10px; color:var(--text-dim);">fat</div></div>
+                    <div><div style="font-size:16px; font-weight:700; color:var(--color-carbs);" id="previewCarb">—</div><div style="font-size:10px; color:var(--text-dim);">carbs</div></div>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-primary" id="logManualBtn" style="width:100%; padding:12px;">
+                  + Log This Food
+                </button>
+              </div>
+            </div>
+
+
+            <!-- Canvas Stage & Bounding Box Viewer -->
+            <div class="scan-stage" id="scanStage">
+              <div class="canvas-container">
+                <canvas id="scanCanvas"></canvas>
+              </div>
+              <div class="scan-controls">
+                <div style="font-size:12px; color:var(--text-muted);" id="scanImageMeta">
+                  Ready for inference
+                </div>
+                <div style="display:flex; gap:10px;">
+                  <button type="button" class="btn btn-secondary" id="resetScanBtn" style="padding:8px 16px;">
+                    Clear
+                  </button>
+                  <button type="button" class="btn btn-primary" id="runInferenceBtn" style="padding:8px 20px;">
+                    <span id="inferSpinner" style="display:none;">⏳</span> 🔍 Analyze Food
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Detected Items & Nutrition Impact -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title"><span>🥗</span> Detected Nutritional Profile</h3>
+                <div class="card-subtitle" id="detectionSubtitle">Upload a photo to see detected items</div>
+              </div>
+              <span class="brand-badge" id="detectionCountBadge">0 Items</span>
+            </div>
+
+            <!-- Meal Scan Total Highlights -->
+            <div id="mealTotalsBanner" style="display:none; margin-bottom:20px; background:rgba(16, 185, 129, 0.08); border:1px solid rgba(16, 185, 129, 0.25); border-radius:var(--radius-sm); padding:16px;">
+              <div style="font-size:12px; text-transform:uppercase; color:var(--primary-light); font-weight:700; margin-bottom:6px;">
+                Meal Scan Totals
+              </div>
+              <div style="display:grid; grid-template-columns:repeat(4, 1fr); text-align:center; gap:8px;">
+                <div>
+                  <div style="font-size:18px; font-weight:800; color:var(--color-calories);" id="scanTotalCal">0</div>
+                  <div style="font-size:10px; color:var(--text-dim);">CALORIES</div>
+                </div>
+                <div>
+                  <div style="font-size:18px; font-weight:800; color:var(--color-protein);" id="scanTotalPro">0g</div>
+                  <div style="font-size:10px; color:var(--text-dim);">PROTEIN</div>
+                </div>
+                <div>
+                  <div style="font-size:18px; font-weight:800; color:var(--color-fat);" id="scanTotalFat">0g</div>
+                  <div style="font-size:10px; color:var(--text-dim);">FAT</div>
+                </div>
+                <div>
+                  <div style="font-size:18px; font-weight:800; color:var(--color-carbs);" id="scanTotalCarb">0g</div>
+                  <div style="font-size:10px; color:var(--text-dim);">CARBS</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detections List -->
+            <div class="detections-list" id="detectionsList">
+              <div style="text-align:center; padding:50px 20px; color:var(--text-dim); font-size:14px;">
+                No scan results yet. Drop an image or pick a demo food to run YOLO detection.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 2: Daily Dashboard & Progress Rings ───────────────────────── -->
+      <section class="view-section" id="viewDashboard">
+        <!-- 4 Progress Rings -->
+        <div class="macro-rings-grid">
+          <!-- Calories Ring -->
+          <div class="macro-ring-card">
+            <div class="ring-wrapper">
+              <svg class="ring-svg" viewBox="0 0 100 100">
+                <circle class="ring-bg" cx="50" cy="50" r="40"></circle>
+                <circle class="ring-fill ring-calories" id="ringCalories" cx="50" cy="50" r="40" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+              </svg>
+              <div class="ring-center-text">
+                <span class="ring-percent" id="ringCalPercent">0%</span>
+              </div>
+            </div>
+            <div class="macro-card-name" style="color:var(--color-calories);">Calories</div>
+            <div class="macro-card-values"><span id="dashCalConsumed">0</span> / <span id="dashCalTarget">2000</span> kcal</div>
+            <div class="macro-card-rem" id="dashCalRem">2000 left</div>
+          </div>
+
+          <!-- Protein Ring -->
+          <div class="macro-ring-card">
+            <div class="ring-wrapper">
+              <svg class="ring-svg" viewBox="0 0 100 100">
+                <circle class="ring-bg" cx="50" cy="50" r="40"></circle>
+                <circle class="ring-fill ring-protein" id="ringProtein" cx="50" cy="50" r="40" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+              </svg>
+              <div class="ring-center-text">
+                <span class="ring-percent" id="ringProPercent">0%</span>
+              </div>
+            </div>
+            <div class="macro-card-name" style="color:var(--color-protein);">Protein</div>
+            <div class="macro-card-values"><span id="dashProConsumed">0</span> / <span id="dashProTarget">175</span> g</div>
+            <div class="macro-card-rem" id="dashProRem">175g left</div>
+          </div>
+
+          <!-- Fat Ring -->
+          <div class="macro-ring-card">
+            <div class="ring-wrapper">
+              <svg class="ring-svg" viewBox="0 0 100 100">
+                <circle class="ring-bg" cx="50" cy="50" r="40"></circle>
+                <circle class="ring-fill ring-fat" id="ringFat" cx="50" cy="50" r="40" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+              </svg>
+              <div class="ring-center-text">
+                <span class="ring-percent" id="ringFatPercent">0%</span>
+              </div>
+            </div>
+            <div class="macro-card-name" style="color:var(--color-fat);">Fats</div>
+            <div class="macro-card-values"><span id="dashFatConsumed">0</span> / <span id="dashFatTarget">67</span> g</div>
+            <div class="macro-card-rem" id="dashFatRem">67g left</div>
+          </div>
+
+          <!-- Carbs Ring -->
+          <div class="macro-ring-card">
+            <div class="ring-wrapper">
+              <svg class="ring-svg" viewBox="0 0 100 100">
+                <circle class="ring-bg" cx="50" cy="50" r="40"></circle>
+                <circle class="ring-fill ring-carbs" id="ringCarbs" cx="50" cy="50" r="40" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+              </svg>
+              <div class="ring-center-text">
+                <span class="ring-percent" id="ringCarbPercent">0%</span>
+              </div>
+            </div>
+            <div class="macro-card-name" style="color:var(--color-carbs);">Carbohydrates</div>
+            <div class="macro-card-values"><span id="dashCarbConsumed">0</span> / <span id="dashCarbTarget">175</span> g</div>
+            <div class="macro-card-rem" id="dashCarbRem">175g left</div>
+          </div>
+        </div>
+
+        <div class="grid-dashboard">
+          <!-- Daily Nutrition Breakdown -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title"><span>🥗</span> Today's Meals Overview</h3>
+              <span class="brand-badge" id="dashMealCount">0 Meals Logged</span>
+            </div>
+            <div id="dashTodayMealsList" class="meal-history-list">
+              <div class="meal-history-empty">No meals logged today yet. Scan a meal to populate your progress!</div>
+            </div>
+          </div>
+
+          <!-- Macro Distribution Bar & Target Summary -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title"><span>📈</span> Caloric Distribution</h3>
+            </div>
+            <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">
+              Your macronutrient calories ratio vs. optimal split defined by your fitness goal.
+            </p>
+            <div style="background:rgba(0,0,0,0.3); padding:20px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+              <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                <span style="color:var(--color-protein);">Protein: <b id="barProPct">35%</b></span>
+                <span style="color:var(--color-fat);">Fat: <b id="barFatPct">30%</b></span>
+                <span style="color:var(--color-carbs);">Carbs: <b id="barCarbPct">35%</b></span>
+              </div>
+              <div style="height:12px; width:100%; border-radius:6px; overflow:hidden; display:flex;">
+                <div id="ratioBarPro" style="background:var(--color-protein); width:35%;"></div>
+                <div id="ratioBarFat" style="background:var(--color-fat); width:30%;"></div>
+                <div id="ratioBarCarb" style="background:var(--color-carbs); width:35%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 3: Biometrics & Mifflin-St Jeor Engine ─────────────────────── -->
+      <section class="view-section" id="viewBiometrics">
+        <div class="grid-dashboard">
+          
+          <!-- Form / Sliders -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title"><span>🧬</span> Biometric Profile</h2>
+                <div class="card-subtitle">Mifflin-St Jeor equation computes your basal metabolism and target calories</div>
+              </div>
+            </div>
+
+            <form id="biometricForm">
+              <div class="form-grid">
+                <!-- Age -->
+                <div class="form-group">
+                  <div class="form-label">
+                    <span>Age</span>
+                    <span class="form-value-display" id="ageVal">26 yrs</span>
+                  </div>
+                  <input type="range" class="range-slider" id="bioAge" min="15" max="90" value="26">
+                </div>
+
+                <!-- Gender -->
+                <div class="form-group">
+                  <div class="form-label">Gender</div>
+                  <select class="form-select" id="bioGender">
+                    <option value="male">Male (Mifflin: +5)</option>
+                    <option value="female">Female (Mifflin: -161)</option>
+                  </select>
+                </div>
+
+                <!-- Height -->
+                <div class="form-group">
+                  <div class="form-label">
+                    <span>Height</span>
+                    <span class="form-value-display" id="heightVal">180 cm</span>
+                  </div>
+                  <input type="range" class="range-slider" id="bioHeight" min="130" max="220" value="180">
+                </div>
+
+                <!-- Weight -->
+                <div class="form-group">
+                  <div class="form-label">
+                    <span>Weight</span>
+                    <span class="form-value-display" id="weightVal">75.0 kg</span>
+                  </div>
+                  <input type="range" class="range-slider" id="bioWeight" min="40" max="160" step="0.5" value="75">
+                </div>
+              </div>
+
+              <!-- Activity Level -->
+              <div class="form-group" style="margin-top:20px;">
+                <div class="form-label">Activity Level (Harris-Benedict Multiplier)</div>
+                <select class="form-select" id="bioActivity">
+                  <option value="sedentary">Sedentary (Little or no exercise: 1.20×)</option>
+                  <option value="lightly_active">Lightly Active (Exercise 1-3 days/week: 1.375×)</option>
+                  <option value="moderately_active" selected>Moderately Active (Exercise 3-5 days/week: 1.55×)</option>
+                  <option value="very_active">Very Active (Hard exercise 6-7 days/week: 1.725×)</option>
+                  <option value="extra_active">Extra Active (Very hard daily exercise / labor: 1.90×)</option>
+                </select>
+              </div>
+
+              <!-- Goal Selector -->
+              <div class="form-group" style="margin-top:20px;">
+                <div class="form-label">Fitness Goal</div>
+                <div class="goal-selector">
+                  <label class="goal-option">
+                    <input type="radio" name="fitness_goal" value="cut" checked>
+                    <div class="goal-card">
+                      <div class="goal-icon">🔥</div>
+                      <div class="goal-name">Cut</div>
+                      <div class="goal-desc">-20% Deficit (35P / 30F / 35C)</div>
+                    </div>
+                  </label>
+
+                  <label class="goal-option">
+                    <input type="radio" name="fitness_goal" value="maintain">
+                    <div class="goal-card">
+                      <div class="goal-icon">⚖️</div>
+                      <div class="goal-name">Maintain</div>
+                      <div class="goal-desc">100% TDEE (30P / 25F / 45C)</div>
+                    </div>
+                  </label>
+
+                  <label class="goal-option">
+                    <input type="radio" name="fitness_goal" value="bulk">
+                    <div class="goal-card">
+                      <div class="goal-icon">💪</div>
+                      <div class="goal-name">Bulk</div>
+                      <div class="goal-desc">+15% Surplus (25P / 25F / 50C)</div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div style="margin-top:28px;">
+                <button type="button" class="btn btn-primary btn-block" id="saveBiometricsBtn">
+                  Save Biometrics & Update Daily Targets
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Real-time Live Calculations Card -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title"><span>⚡</span> Live Metabolic Analysis</h3>
+                <div class="card-subtitle">Real-time Mifflin-St Jeor engine computation</div>
+              </div>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:16px;">
+              <!-- BMI Card -->
+              <div style="background:rgba(0,0,0,0.3); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:16px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <div style="font-size:12px; color:var(--text-dim); text-transform:uppercase;">Body Mass Index (BMI)</div>
+                  <div style="font-size:24px; font-weight:800;" id="calcBmi">23.1</div>
+                </div>
+                <span class="brand-badge" id="calcBmiCat">Normal Weight</span>
+              </div>
+
+              <!-- BMR & TDEE -->
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div style="background:rgba(0,0,0,0.3); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:16px;">
+                  <div style="font-size:11px; color:var(--text-dim); text-transform:uppercase;">Basal Metabolic (BMR)</div>
+                  <div style="font-size:22px; font-weight:800; color:var(--accent-cyan);" id="calcBmr">1,745</div>
+                  <div style="font-size:11px; color:var(--text-muted);">kcal/day at rest</div>
+                </div>
+                <div style="background:rgba(0,0,0,0.3); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:16px;">
+                  <div style="font-size:11px; color:var(--text-dim); text-transform:uppercase;">Daily Expenditure (TDEE)</div>
+                  <div style="font-size:22px; font-weight:800; color:var(--accent-indigo);" id="calcTdee">2,705</div>
+                  <div style="font-size:11px; color:var(--text-muted);">kcal with activity</div>
+                </div>
+              </div>
+
+              <!-- Target Macros Breakdown -->
+              <div style="background:rgba(16, 185, 129, 0.05); border:1px solid rgba(16, 185, 129, 0.2); border-radius:var(--radius-sm); padding:20px;">
+                <div style="font-size:12px; color:var(--primary-light); font-weight:700; text-transform:uppercase; margin-bottom:12px;">
+                  Custom Daily Target: <span id="calcTargetCal" style="font-size:20px; font-weight:800; color:#ffffff;">2,164</span> kcal
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; text-align:center;">
+                  <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:8px;">
+                    <div style="font-size:16px; font-weight:800; color:var(--color-protein);" id="calcTargetPro">189g</div>
+                    <div style="font-size:10px; color:var(--text-dim);">PROTEIN</div>
+                  </div>
+                  <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:8px;">
+                    <div style="font-size:16px; font-weight:800; color:var(--color-fat);" id="calcTargetFat">72g</div>
+                    <div style="font-size:10px; color:var(--text-dim);">FATS</div>
+                  </div>
+                  <div style="background:rgba(0,0,0,0.25); padding:12px; border-radius:8px;">
+                    <div style="font-size:16px; font-weight:800; color:var(--color-carbs);" id="calcTargetCarb">189g</div>
+                    <div style="font-size:10px; color:var(--text-dim);">CARBS</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW 4: Historical Logs ────────────────────────────────────────── -->
+      <section class="view-section" id="viewHistory">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title"><span>🕒</span> Scanned Meal Logs</h2>
+              <div class="card-subtitle">Review historical detections and portions logged to database</div>
+            </div>
+            <input type="date" id="historyDateInput" class="form-input" style="padding:6px 12px; font-size:13px;">
+          </div>
+          <div class="meal-history-list" id="historyList">
+            <div class="meal-history-empty">Loading meal logs...</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ── Account Modal ──────────────────────────────────────────────────────── -->
+  <div class="modal-overlay" id="authModal">
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+        <h3 style="font-size:20px; font-weight:700;">Account Authentication</h3>
+        <button type="button" id="closeModalBtn" style="background:none; border:none; color:var(--text-dim); font-size:20px; cursor:pointer;">&times;</button>
+      </div>
+      <div style="display:flex; gap:10px; margin-bottom:20px;">
+        <button type="button" class="btn btn-secondary btn-block active" id="tabLoginBtn">Sign In</button>
+        <button type="button" class="btn btn-secondary btn-block" id="tabRegisterBtn">Register</button>
+      </div>
+      <form id="authForm">
+        <div class="form-group" style="margin-bottom:14px;">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-input" id="authUsername" required placeholder="e.g. alex_fitness">
+        </div>
+        <div class="form-group" id="emailGroup" style="display:none; margin-bottom:14px;">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" id="authEmail" placeholder="alex@example.com">
+        </div>
+        <div class="form-group" style="margin-bottom:20px;">
+          <label class="form-label">Password</label>
+          <input type="password" class="form-input" id="authPassword" required placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="authSubmitBtn">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── Gemini AI Vision Key Modal ─────────────────────────────────────────── -->
+  <div class="modal-overlay" id="apiKeyModal">
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="font-size:18px; font-weight:700; display:flex; align-items:center; gap:8px;">
+          <span>✨</span> Google Gemini Vision Setup
+        </h3>
+        <button type="button" id="closeApiKeyModalBtn" style="background:none; border:none; color:var(--text-dim); font-size:20px; cursor:pointer;">&times;</button>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); line-height:1.5; margin-bottom:14px;">
+        The offline YOLO model only identifies 80 basic objects. To accurately recognize <b>any food or regional dish</b> (like Dosa, Idli, Biryani, Curries, Pizza, Pasta) with portion estimates, plug in your free Google Gemini API key!
+      </p>
+      <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.25); border-radius:8px; padding:12px; margin-bottom:16px; font-size:12px; color:var(--text-main); line-height:1.4;">
+        ⚡ <b>100% Free:</b> Google AI Studio offers 1,500 requests/day with no credit card required.
+        <br><a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--primary-light); font-weight:600; text-decoration:underline;">Get Free Gemini API Key at Google AI Studio ↗</a>
+      </div>
+      <div class="form-group" style="margin-bottom:16px;">
+        <label class="form-label">Gemini API Key</label>
+        <input type="password" class="form-input" id="geminiApiKeyInput" placeholder="AIzaSy..." style="font-family:monospace; letter-spacing:0.5px;">
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn btn-secondary btn-block" id="clearApiKeyBtn">Clear Key</button>
+        <button type="button" class="btn btn-primary btn-block" id="saveApiKeyBtn">Save & Activate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Scripts -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+# KCapTrack core configuration
