@@ -1,11 +1,3 @@
-"""
-KCapTrack — Meal Scan endpoints.
-
-Routes:
-    POST /scan  – upload an image, run YOLO, log detected items
-    GET  /logs  – retrieve meal logs for a given date
-"""
-
 from __future__ import annotations
 
 import shutil
@@ -20,17 +12,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.config import get_settings
-from app.cv.inference import DetectionResult, NutritionInfo, run_inference
+from app.cv.inference import (
+    DetectionResult,
+    NutritionInfo,
+    _fuzzy_match_nutrition,
+    run_inference,
+    scale_nutrition,
+)
 from app.db.models import FoodItem, MealLog, MealType, User
 from app.db.session import get_db
-from app.schemas.schemas import MealLogOut, MealScanResponse
+from app.schemas.schemas import ManualMealLog, MealLogOut, MealScanResponse
 
 router = APIRouter(prefix="/meals", tags=["Meal Scanning"])
 settings = get_settings()
 
 
 async def _build_nutrition_lookup(db: AsyncSession) -> dict[str, NutritionInfo]:
-    """Load all FoodItem rows into an in-memory lookup keyed by yolo_class_name."""
     result = await db.execute(select(FoodItem))
     items = result.scalars().all()
     return {
@@ -48,7 +45,6 @@ async def _build_nutrition_lookup(db: AsyncSession) -> dict[str, NutritionInfo]:
 
 
 def _save_upload(upload: UploadFile) -> Path:
-    """Persist an uploaded file to the uploads directory."""
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -61,10 +57,6 @@ def _save_upload(upload: UploadFile) -> Path:
 
     return dest
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  POST /meals/scan
-# ═══════════════════════════════════════════════════════════════════════
 
 @router.post(
     "/scan",
@@ -81,16 +73,6 @@ async def scan_meal(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Upload a meal image, run inference (Gemini or YOLO), and persist results.
-
-    **Pipeline:**
-    1. Accept either 'image' or 'file' multipart field.
-    2. Save uploaded image to ``uploads/``.
-    3. Run Gemini Vision (if configured/provided) or YOLO COCO fallback.
-    4. Fuzzy-match detected food items to nutrition DB.
-    5. Persist each detection as a MealLog row.
-    6. Return aggregated totals and itemized breakdown.
-    """
     upload_file = image or file
     if not upload_file:
         raise HTTPException(
@@ -98,7 +80,6 @@ async def scan_meal(
             detail="No image file provided. Please attach an image.",
         )
 
-    # Validate content type if available
     if upload_file.content_type and upload_file.content_type not in (
         "image/jpeg",
         "image/png",
@@ -112,11 +93,8 @@ async def scan_meal(
 
     scan_date = consumed_at or date.today()
     saved_path = _save_upload(upload_file)
-
-    # Build lookup
     nutrition_lookup = await _build_nutrition_lookup(db)
 
-    # Run inference
     try:
         detections: List[DetectionResult] = run_inference(
             image_path=saved_path,
@@ -138,7 +116,6 @@ async def scan_meal(
             ),
         )
 
-    # Persist each detection as a MealLog row
     totals = {"calories": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carbs_g": 0.0}
 
     for det in detections:
@@ -195,10 +172,6 @@ async def scan_meal(
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  GET /meals/logs
-# ═══════════════════════════════════════════════════════════════════════
-
 @router.get(
     "/logs",
     response_model=List[MealLogOut],
@@ -209,7 +182,6 @@ async def get_meal_logs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
-    """Return all meal log entries for the given date (defaults to today)."""
     target_date = log_date or date.today()
     result = await db.execute(
         select(MealLog)
@@ -217,14 +189,6 @@ async def get_meal_logs(
         .order_by(MealLog.created_at.desc())
     )
     return list(result.scalars().all())
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  POST /meals/log-manual
-# ═══════════════════════════════════════════════════════════════════════
-
-from app.schemas.schemas import ManualMealLog
-from app.cv.inference import NutritionInfo, _fuzzy_match_nutrition, scale_nutrition
 
 
 @router.post(
@@ -281,10 +245,6 @@ async def log_manual_meal(
     await db.flush()
     return log
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  GET /meals/foods
-# ═══════════════════════════════════════════════════════════════════════
 
 @router.get(
     "/foods",

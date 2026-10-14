@@ -1,9 +1,3 @@
-"""
-KCapTrack — Application Settings & Environment Configuration.
-
-All settings are loaded from environment variables with sensible defaults.
-Use a `.env` file in the project root for local development.
-"""
 
 from pathlib import Path
 from functools import lru_cache
@@ -55,5 +49,4 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Return a cached singleton of the application settings."""
     return Settings()

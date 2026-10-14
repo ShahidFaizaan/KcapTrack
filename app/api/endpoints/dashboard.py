@@ -1,16 +1,9 @@
-"""
-KCapTrack — Dashboard / Summary endpoints.
-
-Routes:
-    GET /summary  – daily progress vs. biometric targets
-"""
-
 from __future__ import annotations
 
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +16,6 @@ router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 def _progress(consumed: float, target: Optional[float]) -> MacroProgress:
-    """Build a MacroProgress object with remaining and percentage."""
     if target and target > 0:
         remaining = round(target - consumed, 1)
         percentage = round((consumed / target) * 100, 1)
@@ -48,15 +40,8 @@ async def get_daily_summary(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Return the authenticated user's daily nutrition totals and progress.
-
-    Aggregates all ``meal_logs`` for the requested date and compares
-    against the user's biometric targets.  If a ``daily_summaries``
-    cache row exists it is updated; otherwise one is created.
-    """
     target_date = summary_date or date.today()
 
-    # ── Aggregate consumed totals from meal_logs ────────────────────
     agg = await db.execute(
         select(
             func.coalesce(func.sum(MealLog.calories), 0).label("cal"),
@@ -74,7 +59,6 @@ async def get_daily_summary(
         float(row.cal), float(row.pro), float(row.fat), float(row.carb), int(row.cnt),
     )
 
-    # ── Load targets from biometric profile ─────────────────────────
     bio_result = await db.execute(
         select(Biometric).where(Biometric.user_id == user.id)
     )
@@ -85,7 +69,6 @@ async def get_daily_summary(
     t_fat = bio.target_fat_g if bio else None
     t_carb = bio.target_carbs_g if bio else None
 
-    # ── Upsert daily_summaries cache ────────────────────────────────
     ds_result = await db.execute(
         select(DailySummary).where(
             DailySummary.user_id == user.id,
@@ -122,7 +105,6 @@ async def get_daily_summary(
 
     await db.flush()
 
-    # ── Build response ──────────────────────────────────────────────
     return {
         "summary_date": target_date,
         "meal_count": meal_count,

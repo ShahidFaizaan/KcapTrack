@@ -1,10 +1,3 @@
-"""
-KCapTrack — Biometric Engine.
-
-Implements Mifflin-St Jeor BMR → TDEE → goal-adjusted calories →
-macro-split calculations.  All functions are pure (no DB / IO),
-making them easy to unit-test.
-"""
 
 from __future__ import annotations
 
@@ -45,7 +38,6 @@ KCAL_PER_G_CARB = 4.0
 
 @dataclass(frozen=True)
 class BiometricResult:
-    """Value-object holding all computed biometric outputs."""
 
     bmi: float
     bmr: float
@@ -56,23 +48,8 @@ class BiometricResult:
     target_carbs_g: float
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Pure Calculation Functions
-# ═══════════════════════════════════════════════════════════════════════
-
 def calculate_bmi(weight_kg: float, height_cm: float) -> float:
-    """Body Mass Index = weight(kg) / height(m)².
-
-    Args:
-        weight_kg: Body weight in kilograms.
-        height_cm: Height in centimetres.
-
-    Returns:
-        BMI rounded to one decimal place.
-
-    Raises:
-        ValueError: If height is zero or negative.
-    """
+    """BMI = weight / height_m^2."""
     if height_cm <= 0:
         raise ValueError("height_cm must be positive")
     height_m = height_cm / 100.0
@@ -85,49 +62,20 @@ def calculate_bmr(
     age: int,
     gender: Gender,
 ) -> float:
-    """Basal Metabolic Rate via the **Mifflin-St Jeor** equation.
-
-    Men:   BMR = 10·W + 6.25·H − 5·A + 5
-    Women: BMR = 10·W + 6.25·H − 5·A − 161
-
-    Args:
-        weight_kg: Weight in kg.
-        height_cm: Height in cm.
-        age: Age in years.
-        gender: ``Gender.MALE`` or ``Gender.FEMALE``.
-
-    Returns:
-        BMR in kcal/day (rounded to nearest integer).
-    """
+    """Basal Metabolic Rate via Mifflin-St Jeor: Men = 10W + 6.25H - 5A + 5, Women = -161."""
     base = (10.0 * weight_kg) + (6.25 * height_cm) - (5.0 * age)
     bmr = base + 5.0 if gender == Gender.MALE else base - 161.0
     return round(bmr)
 
 
 def calculate_tdee(bmr: float, activity_level: ActivityLevel) -> float:
-    """Total Daily Energy Expenditure = BMR × activity multiplier.
-
-    Args:
-        bmr: Basal Metabolic Rate in kcal/day.
-        activity_level: User's self-reported activity level.
-
-    Returns:
-        TDEE in kcal/day (rounded).
-    """
+    """TDEE = BMR × activity multiplier."""
     multiplier = ACTIVITY_MULTIPLIERS.get(activity_level, 1.2)
     return round(bmr * multiplier)
 
 
 def calculate_target_calories(tdee: float, goal: FitnessGoal) -> float:
-    """Adjust TDEE based on the user's fitness goal.
-
-    Args:
-        tdee: Total Daily Energy Expenditure.
-        goal: ``cut`` / ``maintain`` / ``bulk``.
-
-    Returns:
-        Daily calorie target (rounded).
-    """
+    """Adjust TDEE by goal: cut (-20%), maintain, bulk (+15%)."""
     factor = GOAL_ADJUSTMENTS.get(goal, 1.0)
     return round(tdee * factor)
 
@@ -136,17 +84,7 @@ def calculate_macros(
     target_calories: float,
     goal: FitnessGoal,
 ) -> tuple[float, float, float]:
-    """Compute protein / fat / carb targets in grams.
-
-    Uses the goal-specific macro split ratios defined in ``MACRO_SPLITS``.
-
-    Args:
-        target_calories: Daily calorie target.
-        goal: Fitness goal enum.
-
-    Returns:
-        ``(protein_g, fat_g, carbs_g)`` — all rounded.
-    """
+    """Protein / fat / carb targets in grams using goal-based macro split."""
     p_pct, f_pct, c_pct = MACRO_SPLITS.get(goal, (0.30, 0.25, 0.45))
 
     protein_g = round((target_calories * p_pct) / KCAL_PER_G_PROTEIN)
@@ -156,10 +94,6 @@ def calculate_macros(
     return protein_g, fat_g, carbs_g
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Orchestrator — runs the full pipeline and returns a result object
-# ═══════════════════════════════════════════════════════════════════════
-
 def compute_biometrics(
     weight_kg: float,
     height_cm: float,
@@ -168,22 +102,6 @@ def compute_biometrics(
     activity_level: ActivityLevel,
     goal: FitnessGoal,
 ) -> BiometricResult:
-    """Run the full BMI → BMR → TDEE → macros pipeline.
-
-    This is the single entry-point for the biometric engine; it
-    delegates to the individual pure functions above.
-
-    Args:
-        weight_kg: Weight in kg.
-        height_cm: Height in cm.
-        age: Age in years.
-        gender: Gender enum.
-        activity_level: Activity level enum.
-        goal: Fitness goal enum.
-
-    Returns:
-        A ``BiometricResult`` dataclass with all computed values.
-    """
     bmi = calculate_bmi(weight_kg, height_cm)
     bmr = calculate_bmr(weight_kg, height_cm, age, gender)
     tdee = calculate_tdee(bmr, activity_level)

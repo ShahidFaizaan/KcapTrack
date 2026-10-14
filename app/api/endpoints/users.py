@@ -1,12 +1,3 @@
-"""
-KCapTrack — User & Profile endpoints.
-
-Routes:
-    POST /register       – create a new user
-    POST /login          – authenticate and receive JWT
-    POST /profile        – create / update biometric profile
-    GET  /profile        – retrieve biometric profile with computed targets
-"""
 
 from __future__ import annotations
 
@@ -31,9 +22,6 @@ from app.services.biometrics import compute_biometrics
 router = APIRouter(prefix="/users", tags=["Users & Profile"])
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Registration
-# ═══════════════════════════════════════════════════════════════════════
 
 @router.post(
     "/register",
@@ -45,11 +33,6 @@ async def register(
     payload: UserCreate,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Create a new user account.
-
-    Returns the created user (without password).
-    Raises 409 if username or email already exists.
-    """
     # Check duplicates
     existing = await db.execute(
         select(User).where(
@@ -73,9 +56,6 @@ async def register(
     return user
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Login (JWT)
-# ═══════════════════════════════════════════════════════════════════════
 
 @router.post(
     "/login",
@@ -86,7 +66,6 @@ async def login(
     payload: UserLogin,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Verify credentials and return a bearer token."""
     result = await db.execute(select(User).where(User.username == payload.username))
     user = result.scalar_one_or_none()
 
@@ -100,9 +79,6 @@ async def login(
     return {"access_token": token, "token_type": "bearer"}
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Biometric Profile — POST (upsert)
-# ═══════════════════════════════════════════════════════════════════════
 
 @router.post(
     "/profile",
@@ -114,12 +90,6 @@ async def upsert_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Biometric:
-    """Save or update the authenticated user's biometric profile.
-
-    Automatically computes BMI, BMR, TDEE, and macro targets using
-    the Mifflin-St Jeor equation pipeline.
-    """
-    # Compute biometrics
     result = compute_biometrics(
         weight_kg=payload.weight_kg,
         height_cm=payload.height_cm,
@@ -129,14 +99,12 @@ async def upsert_profile(
         goal=payload.goal,
     )
 
-    # Upsert
     existing = await db.execute(
         select(Biometric).where(Biometric.user_id == user.id)
     )
     bio = existing.scalar_one_or_none()
 
     if bio:
-        # Update existing
         for field_name in (
             "age", "gender", "height_cm", "weight_kg",
             "activity_level", "goal",
@@ -168,9 +136,6 @@ async def upsert_profile(
     return bio
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  Biometric Profile — GET
-# ═══════════════════════════════════════════════════════════════════════
 
 @router.get(
     "/profile",
@@ -181,7 +146,6 @@ async def get_profile(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Biometric:
-    """Retrieve the authenticated user's biometric profile."""
     result = await db.execute(
         select(Biometric).where(Biometric.user_id == user.id)
     )

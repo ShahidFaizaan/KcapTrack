@@ -1,8 +1,3 @@
-"""
-KCapTrack — Main FastAPI Application Entrypoint.
-
-Vision-powered calorie and macronutrient tracking platform.
-"""
 
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,16 +16,12 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan context for startup and shutdown events."""
-    # Ensure uploads directory exists
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     Path("models").mkdir(parents=True, exist_ok=True)
 
-    # Initialize tables asynchronously on startup if using SQLite or dev mode
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Seed food database on startup if seed file exists
     data_path = settings.BASE_DIR / "data" / "food_seed.json"
     if data_path.exists():
         from app.db.session import async_session
@@ -40,7 +31,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     await engine.dispose()
 
 
@@ -82,7 +72,6 @@ app.include_router(api_router)
 # ── Health & Web UI ───────────────────────────────────────────────────────────
 @app.get("/", tags=["UI"])
 async def root():
-    """Serve the KCapTrack interactive Web Dashboard."""
     index_file = Path("static/index.html")
     if index_file.exists():
         from fastapi.responses import FileResponse
@@ -97,7 +86,6 @@ async def root():
 
 @app.get("/api", tags=["System"])
 async def api_info():
-    """API metadata and endpoints directory."""
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
@@ -117,7 +105,6 @@ async def api_info():
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    """System health check endpoint."""
     return {
         "status": "healthy",
         "database": "connected",

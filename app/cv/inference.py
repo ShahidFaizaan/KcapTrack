@@ -1,10 +1,3 @@
-"""
-KCapTrack - YOLO Food Detection and Nutrition Inference Pipeline.
-
-Hybrid pipeline:
-  1. Gemini Vision API (primary) - handles Indian/international foods accurately
-  2. YOLO COCO (fallback) - works offline for 80 COCO classes
-"""
 
 from __future__ import annotations
 
@@ -15,12 +8,10 @@ from typing import Any, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-# Singleton model cache
 _model: Optional[Any] = None
 
 
 def get_model():
-    """Return the cached YOLO model, loading it on first call."""
     global _model
     if _model is None:
         try:
@@ -42,9 +33,6 @@ def get_model():
     return _model
 
 
-# -----------------------------------------------------------------------
-#  Data Classes
-# -----------------------------------------------------------------------
 
 @dataclass
 class NutritionInfo:
@@ -60,7 +48,6 @@ class NutritionInfo:
 
 @dataclass
 class DetectionResult:
-    """A single detection with scaled nutrition."""
     detected_class: str
     confidence: float
     bbox: List[float] = field(default_factory=list)
@@ -73,11 +60,7 @@ class DetectionResult:
     portion_meta: Optional[str] = None
 
 
-# -----------------------------------------------------------------------
-#  Non-Food Object Exclusion List & Food Classes
-# -----------------------------------------------------------------------
 
-# COCO objects that are tableware, furniture, or background and NOT edible food
 NON_FOOD_EXCLUDE = {
     "dining table",
     "table",
@@ -134,9 +117,6 @@ COCO_FOOD_CLASSES = {
 }
 
 
-# -----------------------------------------------------------------------
-#  Geometric Volumetric Portion & Diameter Estimation Engine
-# -----------------------------------------------------------------------
 
 _PORTION_BRACKETS: List[tuple] = [
     (0.03, 50.0),
@@ -154,7 +134,6 @@ def estimate_portion_from_bbox(
     default_portion_g: float = 150.0,
     food_class: Optional[str] = None,
 ) -> float:
-    """Estimate portion weight in grams from bounding-box area and geometry."""
     portion, _ = estimate_portion_with_geometry(
         bbox=bbox,
         image_width=image_width,
@@ -172,7 +151,6 @@ def estimate_portion_with_geometry(
     default_portion_g: float = 150.0,
     food_class: Optional[str] = None,
 ) -> tuple[float, Optional[str]]:
-    """Estimate mass in grams and return geometric metadata (diameter, volume)."""
     if len(bbox) < 4 or image_width <= 0 or image_height <= 0:
         return default_portion_g, None
 
@@ -189,17 +167,12 @@ def estimate_portion_with_geometry(
     min_dim = min(image_width, image_height)
     norm_food = (food_class or "").lower().strip()
 
-    # -------------------------------------------------------------
-    # 1. PIZZA: Circular Slab Geometry with Diameter & Thickness
-    # -------------------------------------------------------------
+    # Pizza: circular slab model
     if "pizza" in norm_food:
         import math
-        # Average pixel diameter across width & height
         d_px = (box_w + box_h) / 2.0
         rel_d = d_px / min_dim
 
-        # In standard tabletop dining photography (~40cm perspective):
-        # The frame width typically spans ~34 cm (standard dish calibration).
         d_cm = rel_d * 34.0
         d_inches = d_cm / 2.54
 
@@ -212,9 +185,7 @@ def estimate_portion_with_geometry(
             meta = f"Single Slice (Sector ~{d_cm:.1f}cm / {d_inches:.1f}\")"
             return slice_weight, meta
 
-        # Full Pizza Circular Slab Model:
-        # Volume = pi * (diameter / 2)^2 * thickness
-        # Standard pizza thickness = ~1.15 cm, effective density with toppings = 0.62 g/cm3
+        # Full pizza circular slab: Volume = pi * r^2 * thickness
         r_cm = d_cm / 2.0
         area_cm2 = math.pi * (r_cm ** 2)
         thickness_cm = 1.15
@@ -222,17 +193,11 @@ def estimate_portion_with_geometry(
 
         calculated_grams = area_cm2 * thickness_cm * density_g_cm3
 
-        # Clamp to realistic whole-pizza bounds:
-        # - Personal/Small (~8-9"): 300 - 450g
-        # - Medium (~10-11"): 480 - 650g
-        # - Large (~12-14"): 650 - 950g
         clamped_grams = round(max(280.0, min(1100.0, calculated_grams)), 1)
         meta = f"Diameter ~{d_cm:.1f}cm ({d_inches:.1f}\") • Cylindrical Slab Model"
         return clamped_grams, meta
 
-    # -------------------------------------------------------------
-    # 2. FRUITS / SPHERES: Ellipsoid Volume (Apple, Orange, etc.)
-    # -------------------------------------------------------------
+    # Fruits/spheres: ellipsoid volume
     if any(k in norm_food for k in ["apple", "orange", "tomato", "peach", "donut"]):
         import math
         d_px = (box_w + box_h) / 2.0
@@ -246,10 +211,7 @@ def estimate_portion_with_geometry(
         meta = f"Diameter ~{d_cm:.1f}cm • Ellipsoidal Volume"
         return grams, meta
 
-    # -------------------------------------------------------------
-    # 3. GENERIC / AREA-BRACKET FALLBACK
-    # -------------------------------------------------------------
-    # If no food_class is given, fallback to standard area brackets
+    # Generic area-bracket fallback
     if food_class is None:
         for max_area, grams in _PORTION_BRACKETS:
             if relative_area <= max_area:
@@ -264,7 +226,6 @@ def estimate_portion_with_geometry(
 
 
 def scale_nutrition(info: NutritionInfo, portion_g: float) -> dict:
-    """Scale per-100g values to the estimated portion."""
     factor = portion_g / 100.0
     return {
         "calories": round(info.calories_per_100g * factor, 1),
@@ -274,32 +235,27 @@ def scale_nutrition(info: NutritionInfo, portion_g: float) -> dict:
     }
 
 
-# -----------------------------------------------------------------------
-#  Fuzzy name matching
-# -----------------------------------------------------------------------
-
 def _fuzzy_match_nutrition(
     food_name: str,
     nutrition_lookup: Dict[str, NutritionInfo],
     cutoff: float = 0.55,
 ) -> Optional[NutritionInfo]:
-    """Fuzzy-match a food name against the nutrition DB."""
     import difflib
 
     food_lower = food_name.lower().strip()
 
-    # 1. Exact key match (case-insensitive)
+    # Exact match
     if food_lower in nutrition_lookup:
         return nutrition_lookup[food_lower]
 
-    # 2. Substring match
+    # Substring match
     for key, info in nutrition_lookup.items():
         if key in food_lower or food_lower in key:
             return info
         if info.name.lower() in food_lower or food_lower in info.name.lower():
             return info
 
-    # 3. difflib fuzzy match on all labels
+    # Fuzzy match
     candidates: Dict[str, NutritionInfo] = {}
     for key, info in nutrition_lookup.items():
         candidates[key] = info
@@ -312,16 +268,11 @@ def _fuzzy_match_nutrition(
     return None
 
 
-# -----------------------------------------------------------------------
-#  Gemini-powered inference (primary)
-# -----------------------------------------------------------------------
-
 def _run_gemini_inference(
     image_path: Path,
     nutrition_lookup: Dict[str, NutritionInfo],
     api_key: str,
 ) -> List[DetectionResult]:
-    """Use Gemini Vision to identify foods, then map to nutrition DB."""
     from app.cv.gemini_vision import identify_foods_with_gemini
 
     gemini_results = identify_foods_with_gemini(image_path, api_key)
@@ -331,13 +282,12 @@ def _run_gemini_inference(
         info = _fuzzy_match_nutrition(gr.food_name, nutrition_lookup)
         portion = gr.estimated_grams or (info.default_portion_g if info else 150.0)
 
-        # If matched in DB with nutritional data, scale from DB
         if info is not None and info.calories_per_100g > 0:
             scaled = scale_nutrition(info, portion)
             name = info.name
             food_id = info.food_item_id
         else:
-            # Use Gemini's direct dietitian estimate
+            # Use Gemini's direct estimate
             scaled = {
                 "calories": round(gr.calories, 1) if gr.calories > 0 else round(1.5 * portion, 1),
                 "protein_g": round(gr.protein_g, 1),
@@ -362,15 +312,10 @@ def _run_gemini_inference(
 
 
 def _suppress_and_merge_overlapping_boxes(raw_candidates: List[dict]) -> List[dict]:
-    """Suppress sub-slices and duplicate overlapping bounding boxes of the same dish.
-
-    For example, if YOLO detects a whole pizza (large box) AND individual slices
-    (smaller boxes inside), the smaller sub-boxes are suppressed into the whole dish.
-    """
+    """Suppress sub-slice duplicate detections of the same dish."""
     if not raw_candidates:
         return []
 
-    # Sort descending by bounding box area (largest dishes first)
     sorted_cands = sorted(
         raw_candidates,
         key=lambda c: max(0.0, (c["bbox"][2] - c["bbox"][0]) * (c["bbox"][3] - c["bbox"][1])),
@@ -389,7 +334,6 @@ def _suppress_and_merge_overlapping_boxes(raw_candidates: List[dict]) -> List[di
         for existing in kept:
             ex_name = existing["info"].name.lower().strip()
 
-            # Compare same or equivalent food items (e.g. pizza vs pizza)
             if cand_name != ex_name:
                 continue
 
@@ -410,10 +354,8 @@ def _suppress_and_merge_overlapping_boxes(raw_candidates: List[dict]) -> List[di
             iom = inter_area / min_area  # Containment ratio
             iou = inter_area / max(1.0, union_area)
 
-            # If the smaller box is > 35% contained in the larger box, or IoU > 0.30:
             if iom > 0.35 or iou > 0.30:
                 suppress = True
-                # If candidate had a higher confidence score, update existing
                 if cand["confidence"] > existing["confidence"]:
                     existing["confidence"] = cand["confidence"]
                 break
@@ -424,16 +366,11 @@ def _suppress_and_merge_overlapping_boxes(raw_candidates: List[dict]) -> List[di
     return kept
 
 
-# -----------------------------------------------------------------------
-#  YOLO inference (fallback)
-# -----------------------------------------------------------------------
-
 def _run_yolo_inference(
     image_path: Path,
     nutrition_lookup: Dict[str, NutritionInfo],
     confidence_threshold: float,
 ) -> List[DetectionResult]:
-    """Run YOLO COCO inference with non-food filtering, NMS, and geometric portioning."""
     model = get_model()
 
     try:
@@ -466,17 +403,14 @@ def _run_yolo_inference(
             class_name = model.names.get(cls_id, f"class_{cls_id}")
             clean_name = class_name.lower().strip()
 
-            # 1. Filter out background non-food objects (dining table, knife, bottle, etc.)
             if clean_name in NON_FOOD_EXCLUDE:
                 logger.info("Filtered non-food object: %s (conf=%.2f)", class_name, conf)
                 continue
 
-            # 2. Look up nutrition in DB
             info = nutrition_lookup.get(clean_name)
             if info is None:
                 info = _fuzzy_match_nutrition(clean_name, nutrition_lookup)
 
-            # 3. Only keep if it is a recognized food or known COCO food class
             if info is None:
                 if clean_name in COCO_FOOD_CLASSES:
                     info = NutritionInfo(name=clean_name)
@@ -495,7 +429,6 @@ def _run_yolo_inference(
                 "info": info,
             })
 
-    # 4. Suppress duplicate and overlapping sub-slice boxes (e.g. 1 whole pizza vs duplicate slices)
     filtered_candidates = _suppress_and_merge_overlapping_boxes(raw_candidates)
 
     detections: List[DetectionResult] = []
@@ -506,7 +439,6 @@ def _run_yolo_inference(
         class_name = cand["class_name"]
         conf = cand["confidence"]
 
-        # 5. Calculate portion mass with geometric volumetric diameter model
         portion, meta = estimate_portion_with_geometry(
             bbox=xyxy,
             image_width=img_w,
@@ -532,24 +464,12 @@ def _run_yolo_inference(
     return detections
 
 
-
-# -----------------------------------------------------------------------
-#  Main entry point - Hybrid Pipeline
-# -----------------------------------------------------------------------
-
 def run_inference(
     image_path: str | Path,
     nutrition_lookup: Dict[str, NutritionInfo],
     confidence_threshold: Optional[float] = None,
     gemini_api_key: Optional[str] = None,
 ) -> List[DetectionResult]:
-    """Run food detection using the best available method.
-
-    Priority:
-        1. Gemini Vision API (if GEMINI_API_KEY is configured or passed) - handles
-           Indian foods, mixed cuisines, complex plates accurately.
-        2. YOLO COCO fallback - works offline for 80 standard classes.
-    """
     if confidence_threshold is None:
         try:
             from app.core.config import get_settings
@@ -559,7 +479,6 @@ def run_inference(
 
     image_path = Path(image_path)
 
-    # Try Gemini first if key provided or in settings
     if not gemini_api_key:
         try:
             from app.core.config import get_settings

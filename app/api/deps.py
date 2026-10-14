@@ -1,10 +1,3 @@
-"""
-KCapTrack — FastAPI Dependency: current authenticated user.
-
-Extracts the JWT from the ``Authorization: Bearer <token>`` header,
-decodes it, and loads the ``User`` row.
-"""
-
 from __future__ import annotations
 
 from fastapi import Depends, HTTPException, status
@@ -23,12 +16,6 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency that resolves the current authenticated user.
-
-    Raises:
-        HTTPException 401: If the token is missing, expired, or the
-            user does not exist / is deactivated.
-    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

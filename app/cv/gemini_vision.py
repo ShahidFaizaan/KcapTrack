@@ -1,24 +1,3 @@
-"""
-KCapTrack — Gemini Vision Food Identification Module.
-
-Uses Google's Gemini Vision API (gemini-2.5-flash / gemini-2.0-flash, free tier)
-to identify food items in an uploaded image. Supplements the YOLO pipeline to
-provide accurate recognition for global and regional cuisines not in COCO's
-80 classes (e.g., Masala Dosa, Biryani, Idli, Sambar, Chutneys, Curries, etc.).
-
-Pipeline:
-    1. Encode image or pass directly to google-genai SDK.
-    2. Send structured prompt asking for food items, portion masses, and macros.
-    3. Parse JSON response → return list of food items + estimated macros and grams.
-    4. Caller fuzzy-matches food names against the DB nutrition lookup or uses direct dietitian estimates.
-
-Environment:
-    GEMINI_API_KEY  – obtained free from https://aistudio.google.com/app/apikey
-
-Free tier limits:
-    - 1,500 requests/day (gemini-2.5-flash / gemini-2.0-flash)
-    - No credit card required
-"""
 
 from __future__ import annotations
 
@@ -31,9 +10,6 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-#  Data model
-# ---------------------------------------------------------------------------
 
 class GeminiDetection:
     """A single food item returned by Gemini Vision."""
@@ -60,9 +36,6 @@ class GeminiDetection:
         return f"GeminiDetection({self.food_name!r}, {self.estimated_grams}g, {self.calories}kcal)"
 
 
-# ---------------------------------------------------------------------------
-#  Prompt
-# ---------------------------------------------------------------------------
 
 _PROMPT = (
     "You are a professional dietitian and computer vision expert specializing in global and Indian food recognition.\n\n"
@@ -87,39 +60,22 @@ _PROMPT = (
 )
 
 
-# ---------------------------------------------------------------------------
-#  Main API function
-# ---------------------------------------------------------------------------
 
 def identify_foods_with_gemini(
     image_path: str | Path,
     api_key: str,
 ) -> List[GeminiDetection]:
-    """Call Gemini Vision to identify food items in an image.
-
-    Args:
-        image_path: Path to the image file on disk.
-        api_key: Gemini API key (from https://aistudio.google.com/app/apikey).
-
-    Returns:
-        List of GeminiDetection objects (may be empty on failure).
-
-    Raises:
-        RuntimeError: If the API call fails across all available model endpoints.
-    """
     image_path = Path(image_path)
     raw_text = _call_gemini_api(image_path, api_key)
     return _parse_gemini_response(raw_text)
 
 
 def _call_gemini_api(image_path: Path, api_key: str) -> str:
-    """Execute Gemini generateContent with automatic model fallback."""
     from PIL import Image
 
     pil_img = Image.open(image_path)
     last_err = None
 
-    # 1. Try modern google-genai SDK (v2+)
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
@@ -132,7 +88,6 @@ def _call_gemini_api(image_path: Path, api_key: str) -> str:
             "gemini-1.5-pro",
         ]
 
-        # Query live available models for this specific API key
         try:
             avail = [m.name for m in client.models.list()]
             flash_avail = [m.replace("models/", "") for m in avail if "flash" in m.lower()]
@@ -159,7 +114,6 @@ def _call_gemini_api(image_path: Path, api_key: str) -> str:
     except ImportError:
         pass
 
-    # 2. Try legacy google.generativeai SDK
     try:
         import google.generativeai as legacy_genai
         legacy_genai.configure(api_key=api_key)
@@ -199,7 +153,6 @@ def _call_gemini_api(image_path: Path, api_key: str) -> str:
     except Exception as e:
         last_err = e
 
-    # 3. Direct REST API fallback via httpx (guaranteed standard HTTP)
     import base64
     import httpx
 
@@ -236,13 +189,7 @@ def _call_gemini_api(image_path: Path, api_key: str) -> str:
     raise RuntimeError(f"All Gemini models and API methods failed. Last error: {last_err}")
 
 
-# ---------------------------------------------------------------------------
-#  Response parser
-# ---------------------------------------------------------------------------
-
 def _parse_gemini_response(raw_text: str) -> List[GeminiDetection]:
-    """Extract list of GeminiDetection from Gemini's response text."""
-    # Strip markdown code fences if present
     raw_text = re.sub(r"```(?:json)?", "", raw_text).strip().strip("`").strip()
 
     data = None
