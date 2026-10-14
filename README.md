@@ -29,31 +29,31 @@
 
 ```mermaid
 graph TD
-    Client["Client / Web UI (Single Page App)"] -->|POST /meals/scan (Photo / Live Camera)| API["FastAPI Gateway"]
-    Client -->|POST /users/profile| API
-    Client -->|GET /dashboard/summary| API
+    Client["Client / Web UI"] -->|"POST /meals/scan"| API["FastAPI Gateway"]
+    Client -->|"POST /users/profile"| API
+    Client -->|"GET /dashboard/summary"| API
 
-    subgraph "Dual AI Vision Pipeline"
-        API --> VisionRouter{"AI Vision Router"}
-        VisionRouter -->|Gemini Key Provided / Set| Gemini["Google Gemini 2.5/2.0 Flash<br/>(Global & Regional Cuisines)"]
-        VisionRouter -->|Offline / Default| YOLO["Ultralytics YOLOv8n<br/>(Fast Local Object Detection)"]
+    subgraph VisionPipeline["Dual AI Vision Pipeline"]
+        API --> VisionRouter{"Vision Router"}
+        VisionRouter -->|"Gemini key set"| Gemini["Google Gemini 2.5/2.0 Flash"]
+        VisionRouter -->|"Offline fallback"| YOLO["Ultralytics YOLOv8n"]
         YOLO --> NonFoodFilter["Non-Food Suppressor & NMS"]
-        NonFoodFilter --> GeometricEst["Portion & Geometric Estimator<br/>(Diameter / Relative Area)"]
+        NonFoodFilter --> GeometricEst["Portion & Geometric Estimator"]
         Gemini --> DietitianMapper["Dietitian Macro Estimator"]
         GeometricEst --> NutritionMap["Nutrition Mapping Engine"]
         DietitianMapper --> NutritionMap
     end
 
-    subgraph "Persistence Layer (SQLAlchemy 2.0 Async)"
-        NutritionMap -->|Query Class Macros| FoodDB[("food_items Table")]
-        NutritionMap -->|Persist Detections| MealLogs[("meal_logs Table")]
-        API -->|Calculate & Upsert| SummaryDB[("daily_summaries Table")]
-        API -->|Auth & Biometrics| UserDB[("users & biometrics Tables")]
+    subgraph Persistence["Persistence Layer - SQLAlchemy 2.0 Async"]
+        NutritionMap -->|"Query macros"| FoodDB[("food_items")]
+        NutritionMap -->|"Persist logs"| MealLogs[("meal_logs")]
+        API -->|"Upsert summary"| SummaryDB[("daily_summaries")]
+        API -->|"Auth & biometrics"| UserDB[("users & biometrics")]
     end
 
-    subgraph "Biometric Engine"
+    subgraph BiometricEngine["Biometric Engine"]
         UserDB --> MSJ["Mifflin-St Jeor BMR & TDEE"]
-        MSJ --> Macros["Macro Split Allocation (Cut/Maintain/Bulk)"]
+        MSJ --> Macros["Macro Split - Cut / Maintain / Bulk"]
         Macros --> SummaryDB
     end
 ```
@@ -241,7 +241,7 @@ Here are the 3 core limitations and our architectural mitigations:
 
 ### 1. Clone & Set Up Virtual Environment
 ```bash
-git clone https://github.com/yourusername/KCapTrack.git
+git clone https://github.com/ShahidFaizaan/KcapTrack.git
 cd KCapTrack
 
 python -m venv venv
